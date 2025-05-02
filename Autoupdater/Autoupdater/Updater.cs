@@ -2,6 +2,7 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -68,9 +69,9 @@ namespace Autoupdater
         public async Task PerformUpdateAsync()
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var parentDir = GetTargetApplicationFolder();
             var tempPath = Path.Combine(baseDir, "updatetemp");
             var extractPath = Path.Combine(tempPath, "extracted");
+            var parentDir = Directory.GetParent(Directory.GetParent(Directory.GetParent(extractPath).FullName).FullName).FullName;
 
             Logger.Write("Starting update process...");
 
@@ -108,17 +109,20 @@ namespace Autoupdater
                     ZipFile.ExtractToDirectory(zip, extractPath);
 
                     // Find the folder containing the .exe (first one found)
-                    string newRoot = null;
-                    foreach (var dir in Directory.GetDirectories(extractPath, "*", SearchOption.AllDirectories))
+                    string newRoot = extractPath;
+                    if(Directory.GetFiles(extractPath, "*.exe", SearchOption.TopDirectoryOnly).Length <= 0)
                     {
-                        var exeFiles = Directory.GetFiles(dir, "*.exe", SearchOption.TopDirectoryOnly);
-                        if (exeFiles.Length > 0)
+                        foreach (var dir in Directory.GetDirectories(extractPath, "*", SearchOption.AllDirectories))
                         {
-                            newRoot = dir;
-                            break;
+                            var exeFiles = Directory.GetFiles(dir, "*.exe", SearchOption.TopDirectoryOnly);
+                            if (exeFiles.Length > 0)
+                            {
+                                newRoot = dir;
+                                break;
+                            }
                         }
                     }
-
+                    
                     if (newRoot == null)
                     {
                         Logger.Write("No .exe file found in the archive – update aborted.");
@@ -126,6 +130,8 @@ namespace Autoupdater
                     }
 
                     Logger.Write("Copying files from: " + newRoot);
+
+                    var exefileToStartAfterUpdate = "";
 
                     foreach (var file in Directory.GetFiles(newRoot, "*", SearchOption.AllDirectories))
                     {
@@ -143,7 +149,12 @@ namespace Autoupdater
                         if (!Directory.Exists(destDir))
                             Directory.CreateDirectory(destDir);
 
+
                         File.Copy(file, destPath, true);
+                        if(string.IsNullOrEmpty(exefileToStartAfterUpdate) && (new FileInfo(destPath)).Extension == ".exe")
+                        {
+                            exefileToStartAfterUpdate = destPath;
+                        }
                         Logger.Write("Copied: " + relativePath);
                     }
 
@@ -153,6 +164,16 @@ namespace Autoupdater
                     Directory.Delete(tempPath, true);
                     Logger.Write("Update completed successfully.");
 
+                    if(string.IsNullOrEmpty(exefileToStartAfterUpdate) == false)
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = exefileToStartAfterUpdate,
+                            UseShellExecute = false,
+                            CreateNoWindow = false,
+                            WorkingDirectory = Path.GetDirectoryName(exefileToStartAfterUpdate)
+                        });
+                    }
 
                     break;
                 }
@@ -193,35 +214,6 @@ namespace Autoupdater
             {
                 Logger.Write("WARNING: Failed to update version in updates.json: " + ex.Message);
             }
-        }
-
-
-        private string GetTargetApplicationFolder()
-        {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            Logger.Write("Base directory: " + baseDir);
-
-            var dir = new DirectoryInfo(baseDir);
-
-            // Trin op: find "autoupdater" og gå én mappe op fra den
-            while (dir != null)
-            {
-                if (dir.Name.Equals("autoupdater", StringComparison.OrdinalIgnoreCase))
-                {
-                    var parent = dir.Parent;
-                    if (parent != null)
-                    {
-                        Logger.Write("Target application folder resolved as: " + parent.FullName);
-                        return parent.FullName;
-                    }
-                }
-
-                dir = dir.Parent;
-            }
-
-            // Fallback: én mappe op fra baseDir
-            Logger.Write("Could not locate 'autoupdater' folder in path – falling back to parent of baseDir.");
-            return Directory.GetParent(baseDir).FullName;
         }
 
         private List<IUpdateSource> GetSources()
