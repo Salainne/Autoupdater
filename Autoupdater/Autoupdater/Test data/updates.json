@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "sources": [
+    {
+      "type": "github",
+      "repo": "octocat/Hello-World",
+      "assetMatch": ".*\\.zip$"
+    }
+  ]
+}
